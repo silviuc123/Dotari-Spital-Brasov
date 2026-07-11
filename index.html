@@ -120,6 +120,12 @@ tr.st-px td{background:var(--row-px)}
 .abtn:hover{opacity:.9}
 .expand-all{font-size:11px;color:var(--navy-lt);cursor:pointer;text-decoration:underline;white-space:nowrap}
 
+/* ── +RFI buttons ── */
+.add-rfi{padding:3px 10px;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;border-radius:4px;cursor:pointer;font-size:10.5px;font-weight:700;transition:.15s;white-space:nowrap}
+.add-rfi:hover{background:#fff;color:var(--navy)}
+.add-rfi.sm{border-color:var(--navy-lt);background:transparent;color:var(--navy-lt);font-size:10px;padding:2px 8px}
+.add-rfi.sm:hover{background:var(--navy-lt);color:#fff}
+
 @media(max-width:900px){
   .obs{max-width:170px;min-width:120px}
   header h1{font-size:13px}
@@ -143,7 +149,7 @@ tr.st-px td{background:var(--row-px)}
 <header>
   <div>
     <h1 id="appTitle">Dotări Medicale — Spital Brașov</h1>
-    <div class="proj">0040325_LEV_DB_SpitalBrasov · v2.2 · toate etajele</div>
+    <div class="proj">0040325_LEV_DB_SpitalBrasov · v2.3 · toate etajele</div>
   </div>
   <div class="floor-tabs" id="floorTabs"></div>
   <div class="hdr-stats" id="hdrStats"></div>
@@ -212,9 +218,9 @@ const ALL = {"ETAJ 4":[{"nr":1,"cod":"MED-001","sectie":"Pneumologie I Adulți",
 const FLOORS = Object.keys(ALL);
 
 /* ── Persistence ── */
-let ST={}, NOTES={}, RVOV={}, RFIOV={}, COLLAPSE={};
+let ST={}, NOTES={}, RVOV={}, RFIOV={}, COLLAPSE={}, CUSTOM={};
 let SRC_HIDDEN=false;
-const K_ST='sb-status-v2', K_NT='sb-notes-v2', K_RV='sb-revit-v2', K_RF='sb-rfi-v2', K_UI='sb-ui-c7';
+const K_ST='sb-status-v2', K_NT='sb-notes-v2', K_RV='sb-revit-v2', K_RF='sb-rfi-v2', K_UI='sb-ui-c7', K_CU='sb-custom-v1';
 const store={
   async get(k){
     try{ if(window.storage){ const r=await window.storage.get(k); return r?JSON.parse(r.value):null } }catch(e){}
@@ -231,7 +237,7 @@ let curFloor = FLOORS[0];
 let filters = new Set();
 let q = '';
 
-function items(){ return ALL[curFloor] }
+function items(){ return ALL[curFloor].concat(CUSTOM[curFloor]||[]) }
 function stOf(it){ return ST[it.nr]||'' }
 function noteOf(it){ return NOTES[it.nr]||'' }
 function revitOf(it){ return RVOV[it.nr]||it.revit }
@@ -255,6 +261,38 @@ async function toggleRfi(nr,orig){
   const next=!cur;
   if(next===orig) delete RFIOV[nr]; else RFIOV[nr]=next;
   await store.set(K_RF,RFIOV); render();
+}
+
+/* ── Adăugare RFI manual (item nou) ── */
+async function addRfi(sectie, incapere){
+  const den = prompt('Denumire item / întrebare RFI pentru:\n' + sectie + (incapere ? ' → ' + incapere : ''));
+  if(!den || !den.trim()) return;
+  const buc = prompt('Bucăți (Enter = 1):') || '1';
+  if(!CUSTOM[curFloor]) CUSTOM[curFloor] = [];
+  CUSTOM[curFloor].push({
+    nr: Date.now(),
+    cod: 'RFI-NOU',
+    sectie: sectie,
+    incapere: incapere || 'RFI general secție',
+    den: den.trim(),
+    buc: parseInt(buc)||1,
+    furn: '', pret: '', fisa: '', fisaUrl: '',
+    revit: 'VER',
+    sursa: '📝 Adăugat manual',
+    inst: '', obs: '',
+    rfi: true,
+    custom: true
+  });
+  await store.set(K_CU, CUSTOM);
+  render();
+}
+async function delCustom(nr){
+  if(!confirm('Ștergi acest item RFI adăugat manual?')) return;
+  CUSTOM[curFloor] = (CUSTOM[curFloor]||[]).filter(it=>it.nr!==nr);
+  delete ST[nr]; delete NOTES[nr]; delete RVOV[nr]; delete RFIOV[nr];
+  await store.set(K_CU, CUSTOM);
+  await store.set(K_ST, ST); await store.set(K_NT, NOTES);
+  render();
 }
 
 let noteTimer=null;
@@ -368,10 +406,11 @@ function render(){
     const sItems=Object.values(g[s]).flat();
     const sOk=sItems.filter(it=>stOf(it)==='ok').length;
     const closed=COLLAPSE[sid];
+    const addBtnS = ROLE==='lvd' ? `<button class="add-rfi" onclick="event.stopPropagation();addRfi('${esc2(s)}','')" title="Adaugă RFI nou în această secție">+ RFI</button>` : '';
     h+=`<div class="sect-block">
       <div class="sect-hdr ${closed?'closed':''}" id="h-${sid}" onclick="toggleSect('${sid}')">
         <span class="lft"><span class="car">▼</span>${s}</span>
-        <span class="prog">${sOk}/${sItems.length} bifate</span></div>
+        <span style="display:flex;gap:10px;align-items:center">${addBtnS}<span class="prog">${sOk}/${sItems.length} bifate</span></span></div>
       <div class="sect-body ${closed?'hidden':''}" id="b-${sid}">`;
     let iIdx=0;
     for(const inc in g[s]){
@@ -379,7 +418,8 @@ function render(){
       const iid=sid+'-i'+iIdx;
       const iItems=g[s][inc];
       const iOk=iItems.filter(it=>stOf(it)==='ok').length;
-      h+=`<div class="inc-hdr" onclick="toggleSect('${iid}')"><span>${inc}</span><span class="mini">${iOk}/${iItems.length}</span></div>
+      const addBtnI = ROLE==='lvd' ? `<button class="add-rfi sm" onclick="event.stopPropagation();addRfi('${esc2(s)}','${esc2(inc)}')" title="Adaugă RFI nou în această încăpere">+ RFI</button>` : '';
+      h+=`<div class="inc-hdr" onclick="toggleSect('${iid}')"><span>${inc}</span><span style="display:flex;gap:8px;align-items:center">${addBtnI}<span class="mini">${iOk}/${iItems.length}</span></span></div>
         <div class="inc-body ${COLLAPSE[iid]?'hidden':''}" id="b-${iid}">
         <table><thead><tr>
         <th style="width:78px">Status</th><th>Cod</th><th>Denumire</th><th style="text-align:center">Buc</th>
@@ -414,9 +454,9 @@ function render(){
               oninput="onNote(${it.nr},this.value);this.classList.toggle('has-note',!!this.value.trim())"
               onfocus="this.rows=3" onblur="this.rows=1">${note}</textarea>
           </td>
-          <td class="rfi-cell" onclick="toggleRfi(${it.nr},${it.rfi})"
-              title="${rfi?'RFI activ — click pentru a-l elimina':'Click pentru a marca RFI'}">
-            <span class="${rfi?'rfi-on':'rfi-off'}">${rfi?'⚠️':'○'}</span>${rfiMod?'<span class="mod-dot">●</span>':''}
+          <td class="rfi-cell" onclick="${it.custom?`delCustom(${it.nr})`:`toggleRfi(${it.nr},${it.rfi})`}"
+              title="${it.custom?'Item adăugat manual — click pentru ștergere':(rfi?'RFI activ — click pentru a-l elimina':'Click pentru a marca RFI')}">
+            ${it.custom?'<span style="font-size:12px">🗑</span>':`<span class="${rfi?'rfi-on':'rfi-off'}">${rfi?'⚠️':'○'}</span>${rfiMod?'<span class="mod-dot">●</span>':''}`}
           </td>
         </tr>`;
       }
@@ -428,6 +468,7 @@ function render(){
   document.getElementById('main').innerHTML=h;
 }
 
+function esc2(s){ return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;') }
 function selFloor(f){ curFloor=f; render(); window.scrollTo(0,0) }
 
 document.querySelectorAll('.fbtn').forEach(b=>{
@@ -441,7 +482,7 @@ document.querySelectorAll('.fbtn').forEach(b=>{
 document.getElementById('q').oninput=e=>{ q=e.target.value.toLowerCase(); render() };
 
 function exportJSON(){
-  const blob=new Blob([JSON.stringify({status:ST,notes:NOTES,revit:RVOV,rfi:RFIOV,srcHidden:SRC_HIDDEN,exported:new Date().toISOString()},null,1)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({status:ST,notes:NOTES,revit:RVOV,rfi:RFIOV,custom:CUSTOM,srcHidden:SRC_HIDDEN,exported:new Date().toISOString()},null,1)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download='spital-brasov-backup.json'; a.click();
@@ -452,7 +493,8 @@ document.getElementById('fileIn').onchange=e=>{
   const r=new FileReader();
   r.onload=async()=>{ try{
     const o=JSON.parse(r.result);
-    ST=o.status||{}; NOTES=o.notes||{}; RVOV=o.revit||{}; RFIOV=o.rfi||{};
+    ST=o.status||{}; NOTES=o.notes||{}; RVOV=o.revit||{}; RFIOV=o.rfi||{}; CUSTOM=o.custom||{};
+    await store.set(K_CU,CUSTOM);
     if(o.srcHidden!==undefined) SRC_HIDDEN=o.srcHidden;
     await store.set(K_ST,ST); await store.set(K_NT,NOTES);
     await store.set(K_RV,RVOV); await store.set(K_RF,RFIOV);
@@ -487,6 +529,7 @@ function exportCSV(){
   NOTES=await store.get(K_NT)||{};
   RVOV=await store.get(K_RV)||{};
   RFIOV=await store.get(K_RF)||{};
+  CUSTOM=await store.get(K_CU)||{};
   const ui=await store.get(K_UI);
   if(ui && ui.h!==undefined) SRC_HIDDEN=ui.h;
   if(ROLE!=='lvd') SRC_HIDDEN=true;   /* extern: mereu fără sursă */
