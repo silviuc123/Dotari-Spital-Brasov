@@ -143,7 +143,7 @@ tr.st-px td{background:var(--row-px)}
 <header>
   <div>
     <h1 id="appTitle">Dotări Medicale — Spital Brașov</h1>
-    <div class="proj">0040325_LEV_DB_SpitalBrasov · v2.1 · toate etajele</div>
+    <div class="proj">0040325_LEV_DB_SpitalBrasov · v2.2 · toate etajele</div>
   </div>
   <div class="floor-tabs" id="floorTabs"></div>
   <div class="hdr-stats" id="hdrStats"></div>
@@ -173,16 +173,23 @@ tr.st-px td{background:var(--row-px)}
 <input type="file" id="fileIn" accept=".json" style="display:none">
 
 <script>
-/* ── Password gate ── */
-const PW_HASH='bd76c170a48f1db3c3468f1fbfd8628a2eb8cf43ad5e9f2b983ae56b5d1b9c8b';
+/* ── Password gate — 3 roluri ── */
+const PW_ROLES={
+  'bd76c170a48f1db3c3468f1fbfd8628a2eb8cf43ad5e9f2b983ae56b5d1b9c8b':'lvd',
+  'ebad761f8d02f12530b071bd9782111960331cec635306d2b611ef3e905e5bd6':'ext1',
+  '8ddd58c4925c294e8bbcfa8bb6950ca0241bef290a4aea246c679978ffcb1ef9':'ext2'
+};
+let ROLE=null;
 async function sha256(s){
   const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 async function checkPw(){
   const v=document.getElementById('pw').value;
-  if(await sha256(v)===PW_HASH){
-    try{sessionStorage.setItem('sb-auth','1')}catch(e){}
+  const h=await sha256(v);
+  if(PW_ROLES[h]){
+    ROLE=PW_ROLES[h];
+    try{sessionStorage.setItem('sb-auth',ROLE)}catch(e){}
     unlock();
   }else{
     document.getElementById('pwErr').textContent='Parolă incorectă';
@@ -192,8 +199,11 @@ async function checkPw(){
 function unlock(){
   document.body.classList.remove('locked');
   const l=document.getElementById('lock'); if(l) l.remove();
+  if(typeof applyRole==='function') applyRole();
 }
-try{ if(sessionStorage.getItem('sb-auth')==='1'){
+try{ const r=sessionStorage.getItem('sb-auth');
+if(r && ['lvd','ext1','ext2'].includes(r)){
+  ROLE=r;
   window.addEventListener('DOMContentLoaded',()=>unlock());
 }}catch(e){}
 </script>
@@ -260,6 +270,7 @@ function onNote(nr,val){
 /* ── Secret: 7 taps pe titlu sau pe header-ul Sursă → toggle coloana Sursă ── */
 let taps=[];
 async function secretTap(){
+  if(ROLE!=='lvd') return;   /* trucul funcționează doar pentru echipa LVD */
   const now=Date.now();
   taps=taps.filter(t=>now-t<4000);
   taps.push(now);
@@ -272,6 +283,11 @@ async function secretTap(){
     m.textContent=SRC_HIDDEN?'· · ·':'Coloana Sursă vizibilă';
     setTimeout(()=>m.textContent='Statusuri, notițe, Revit și RFI: salvare automată',2500);
   }
+}
+/* Rol extern → sursa fortat ascunsă, indiferent de localStorage */
+function applyRole(){
+  if(ROLE!=='lvd'){ SRC_HIDDEN=true; }
+  render();
 }
 document.addEventListener('click',e=>{
   if(e.target.closest('#appTitle')||e.target.closest('th.src-th')) secretTap();
@@ -473,6 +489,7 @@ function exportCSV(){
   RFIOV=await store.get(K_RF)||{};
   const ui=await store.get(K_UI);
   if(ui && ui.h!==undefined) SRC_HIDDEN=ui.h;
+  if(ROLE!=='lvd') SRC_HIDDEN=true;   /* extern: mereu fără sursă */
   render();
 })();
 </script>
